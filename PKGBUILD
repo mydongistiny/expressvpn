@@ -2,39 +2,60 @@
 # Co-Maintainer: WorMzy Tykashi <wormzy.tykashi@gmail.com>
 
 pkgname=expressvpn
-pkgver=3.83.0.2_1
+pkgver=5.0.1.11498
 pkgrel=1
 pkgdesc="Proprietary VPN client for Linux"
-arch=('x86_64' 'i686' 'armv7h')
-depends=('glibc')
+arch=('x86_64')
+depends=('libxkbcommon' 'libnl' 'iptables' 'psmisc' 'gcc-libs' 'brotli' 'iproute2' 'ca-certificates' 'mesa')
 url="https://expressvpn.com"
 license=('LicenseRef-custom')
 options=(!strip)
 install=expressvpn.install
-_url="https://www.expressvpn.works/clients/linux"
-source_x86_64=("${_url}/${pkgname}_${pkgver/_/-}_amd64.deb"{,.asc})
-source_i686=("${_url}/${pkgname}_${pkgver/_/-}_i386.deb"{,.asc})
-source_armv7h=("${_url}/${pkgname}_${pkgver/_/-}_armhf.deb"{,.asc})
+source=("https://www.expressvpn.works/clients/linux/${pkgname}-linux-universal-${pkgver}.run")
+sha512sums=(0ae5956bdd459478e3809c6cf11fcd2b2228f7a819d983a76a892d01a5b0236e7cdce2f61c558d06b559d2e310e837eba92909d88c1421a413eec9cd74590ca5)
 
-sha512sums_x86_64=('3090e8869fa142c96eda68fd0167138da5889a340102c910cd07b67b838b3d6448800ed768744250d11b99011665736d083f9debbc8c14b5b2e481addf887264'
-                   'SKIP')
-sha512sums_i686=('ec23a703e37f7b25cf4cab30928f08bc013adb04f777858359810f63a1b92d4a9a1272f2c988f5228321616d879ce9ca8aac5abcb5eab452a5108517080b286c'
-                 'SKIP')
-sha512sums_armv7h=('fabe8b634bdd9c9f1d7551e7975cf74de7673eaa8154fe3d29905a7de26baf85896306dd302826aa15fbb46aa5885335a8927c96ff72e7b4b5debfa16fb5cd32'
-                   'SKIP')
-validpgpkeys=('1D0B09AD6C93FEE93FDDBD9DAFF2A1415F6A3A38')
+build() {
+    sh ${pkgname}-linux-universal-${pkgver}.run --target "${srcdir}/${pkgname}" --noexec --noexec-cleanup --nochown
+}
 
 package() {
-    # /usr/sbin is a symlink to /usr/bin, rewrite it. Upstream also install files to both /lib and /usr/lib
-    # merge these and move to correct location
-    bsdtar -C "${pkgdir}" -xf "${srcdir}/data.tar.gz" -s ":/usr/sbin:/usr/bin:" -s ":/usr/lib:/lib:"
-    mv "${pkgdir}/lib" "${pkgdir}/usr/"
+    cd "${pkgname}/x64"
 
-    install -dm755 "${pkgdir}/usr/share/licenses/${pkgname}"
-    ln -s "/usr/share/doc/expressvpn/COPYRIGHT" "${pkgdir}/usr/share/licenses/${pkgname}/COPYRIGHT"
+    # Install package files
+    install -d "${pkgdir}/opt/${pkgname}"
+    cp -r expressvpnfiles/bin/ "${pkgdir}/opt/${pkgname}"
+    cp -r expressvpnfiles/lib/ "${pkgdir}/opt/${pkgname}"
+    cp -r expressvpnfiles/plugins/ "${pkgdir}/opt/${pkgname}"
+    cp -r expressvpnfiles/qml/ "${pkgdir}/opt/${pkgname}"
+    cp -r expressvpnfiles/share/ "${pkgdir}/opt/${pkgname}"
+    install -Dm 755 installfiles/error-notice.sh -t "${pkgdir}/opt/${pkgname}/bin"
+    install -Dm 755 installfiles/run-in-terminal.sh -t "${pkgdir}/opt/${pkgname}/bin"
 
-    install -dm755 "${pkgdir}/var/lib/expressvpn/certs"
+    # Link cli to /usr/bin
+    install -d "${pkgdir}/usr/bin"
+    ln -s /opt/${pkgname}/bin/expressvpnctl "${pkgdir}/usr/bin/expressvpnctl"
 
-    # Remove unused /etc
-    rm -r "$pkgdir/etc/"
+    # Create var path
+    install -d "${pkgdir}/opt/${pkgname}/var"
+
+    # Install systemd service
+    install -Dm 644 "installfiles/${pkgname}-service.service" -t "${pkgdir}/etc/systemd/system"
+
+    # Install desktop files
+    install -Dm 644 "installfiles/app-icon.png" "${pkgdir}/usr/share/pixmaps/${pkgname}.png"
+    install -Dm 644 "installfiles/${pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+
+    # Install browser manifests
+    sed -i "s|REPLACE_PATH|/opt/expressvpn/share/browser_helper_wrapper.sh|g" "${pkgdir}/opt/${pkgname}/share/chrome.com.expressvpn.helper.json"
+    sed -i "s|REPLACE_PATH|/opt/expressvpn/share/browser_helper_wrapper.sh|g" "${pkgdir}/opt/${pkgname}/share/firefox.com.expressvpn.helper.json"
+    install -Dm 644 "${pkgdir}/opt/${pkgname}/share/chrome.com.expressvpn.helper.json" "${pkgdir}/etc/chromium/native-messaging-hosts/com.expressvpn.helper.json"
+    install -Dm 644 "${pkgdir}/opt/${pkgname}/share/chrome.com.expressvpn.helper.json" "${pkgdir}/etc/opt/chrome/native-messaging-hosts/com.expressvpn.helper.json"
+    install -Dm 644 "${pkgdir}/opt/${pkgname}/share/firefox.com.expressvpn.helper.json" "${pkgdir}/etc/mozilla/native-messaging-hosts/com.expressvpn.helper.json"
+
+    # Create user for service
+    echo 'u expressvpn - "Proprietary VPN client for Linux"' |
+      install -Dm644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/${pkgname}.conf"
+    # Create group for Handshake DNS service
+    echo 'u expressvpnhnsd - "Proprietary VPN client for Linux"' |
+      install -Dm644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/${pkgname}hnsd.conf"
 }
